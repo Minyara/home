@@ -1,64 +1,136 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    xmlns:tools="http://schemas.android.com/tools"
+    android:orientation="vertical"
     android:padding="16dp"
-    tools:context=".FormationDetailActivity">
+    android:background="@android:color/white">
 
-    <LinearLayout
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorPrimary"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar" />
 
-        <TextView
-            android:id="@+id/tv_titre"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:text="Titre"/>
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
 
-        <TextView
-            android:id="@+id/tv_description"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Description"/>
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/tv_formateur"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Formateur"/>
+            <TextView
+                android:id="@+id/tv_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:paddingBottom="12dp"
+                android:textColor="@color/iefpTextPrimary" />
 
-        <TextView
-            android:id="@+id/tv_dates"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Dates"/>
+            <TextView
+                android:id="@+id/tv_description"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="16sp"
+                android:paddingBottom="12dp"
+                android:textColor="@color/iefpTextSecondary" />
 
-        <TextView
-            android:id="@+id/tv_duree"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Durée"/>
+            <TextView
+                android:id="@+id/tv_duration"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/iefpBlue" />
 
-        <TextView
-            android:id="@+id/tv_statut"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Statut"/>
+            <TextView
+                android:id="@+id/tv_start_date"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/iefpBlue" />
 
-        <TextView
-            android:id="@+id/tv_modules"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Modules"/>
-    </LinearLayout>
-</ScrollView>
+            <TextView
+                android:id="@+id/tv_formateur"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/iefpBlue" />
+
+            <TextView
+                android:id="@+id/tv_email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/iefpBlue" />
+
+            <TextView
+                android:id="@+id/tv_materiel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/iefpBlue" />
+
+            <TextView
+                android:id="@+id/tv_modalite"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/iefpBlue" />
+
+            <TextView
+                android:id="@+id/tv_places"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/iefpBlue" />
+
+            <TextView
+                android:id="@+id/tv_price"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="12dp"
+                android:textColor="@color/iefpBlue" />
+
+            <TextView
+                android:id="@+id/tv_file_link"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="14sp"
+                android:paddingBottom="12dp"
+                android:textColor="@android:color/holo_blue_dark"
+                android:text="Télécharger le fichier"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tv_enroll_link"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Rejoignez-nous sur le web pour plus d'options"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/iefpBlue"
+                android:background="@drawable/rounded_background"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="12dp"
+                android:layout_gravity="center_horizontal"
+                android:textAlignment="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:elevation="4dp"
+                android:translationZ="4dp" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
