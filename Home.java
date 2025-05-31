@@ -2,32 +2,41 @@ package com.example.pfe;
 
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.cardview.widget.CardView;
+import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+import com.google.firebase.storage.FirebaseStorage;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -39,14 +48,18 @@ public class Home extends AppCompatActivity {
     private static final String TAG = "HomeActivity";
     private LinearLayout cardsContainer;
     private ProgressBar progressBar;
-    private DatabaseReference formationsRef, usersRef;
+    private DatabaseReference categoriesRef, usersRef;
     private Map<String, List<DataSnapshot>> formationsByCategory = new HashMap<>();
     private EditText searchEditText;
     private ImageView ivFilter;
     private List<DataSnapshot> allFormations = new ArrayList<>();
     private TextView tvTotalCourses, tvActiveStudents, tvTotalFormateurs, tvViewAll;
     private MaterialButton btnClearSearch;
+    private FirebaseAuth mAuth;
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+    private List<String> categoryList = new ArrayList<>();
+    private String selectedCategory = "all";
+    private Map<String, String> formationToCategoryMap = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +67,7 @@ public class Home extends AppCompatActivity {
         setContentView(R.layout.activity_home);
 
         FirebaseDatabase.getInstance().setPersistenceEnabled(true);
+        mAuth = FirebaseAuth.getInstance();
 
         initViews();
         loadData();
@@ -74,13 +88,17 @@ public class Home extends AppCompatActivity {
         tvViewAll = findViewById(R.id.tv_view_all);
         btnClearSearch = findViewById(R.id.btn_clear_search);
 
-        formationsRef = FirebaseDatabase.getInstance().getReference("formations");
+        categoriesRef = FirebaseDatabase.getInstance().getReference("categories");
         usersRef = FirebaseDatabase.getInstance().getReference("users");
     }
 
     private void setupListeners() {
         ivFilter.setOnClickListener(v -> showFilterDialog());
-        tvViewAll.setOnClickListener(v -> showAllFormations());
+        tvViewAll.setOnClickListener(v -> {
+            selectedCategory = "all";
+            searchEditText.setText("");
+            displayFormationsByCategory(new HashMap<>());
+        });
 
         searchEditText.setOnKeyListener((v, keyCode, event) -> {
             filterFormations(searchEditText.getText().toString());
@@ -89,7 +107,8 @@ public class Home extends AppCompatActivity {
 
         btnClearSearch.setOnClickListener(v -> {
             searchEditText.setText("");
-            showAllFormations();
+            selectedCategory = "all";
+            displayFormationsByCategory(new HashMap<>());
         });
     }
 
@@ -100,44 +119,69 @@ public class Home extends AppCompatActivity {
 
         Log.d(TAG, "Loading data...");
 
-        formationsRef.addValueEventListener(new ValueEventListener() {
+        categoriesRef.addValueEventListener(new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
                 formationsByCategory.clear();
                 allFormations.clear();
+                categoryList.clear();
+                formationToCategoryMap.clear();
+                categoryList.add("Toutes les catégories");
 
                 if (!dataSnapshot.exists()) {
-                    Log.w(TAG, "No data found in 'formations' node");
+                    Log.w(TAG, "No data found in 'categories' node");
                     showNoDataMessage();
                     progressBar.setVisibility(View.GONE);
                     updateUI(0, 0, 0);
                     return;
                 }
 
-                Log.d(TAG, "Number of formations found: " + dataSnapshot.getChildrenCount());
+                Log.d(TAG, "Number of categories found: " + dataSnapshot.getChildrenCount());
 
-                for (DataSnapshot snapshot : dataSnapshot.getChildren()) {
-                    Log.d(TAG, "Processing formation: " + snapshot.getKey());
+                for (DataSnapshot categorySnapshot : dataSnapshot.getChildren()) {
+                    String categoryId = categorySnapshot.getKey();
+                    String categoryName = getValueFromAlternateKeys(categorySnapshot, new String[]{"nom", "name"}, categoryId);
+                    Log.d(TAG, "Processing category: " + categoryName + " (ID: " + categoryId + ")");
 
-                    if (isFormationActive(snapshot)) {
-                        allFormations.add(snapshot);
+                    if (categoryName.equals("Toutes les formations") || categoryName.equals("Mes formations")) {
+                        continue;
+                    }
 
-                        String category = getValueFromAlternateKeys(snapshot,
-                                new String[]{"categorie", "category", "type"}, "Autres");
+                    categoryList.add(categoryName);
 
-                        if (!formationsByCategory.containsKey(category)) {
-                            formationsByCategory.put(category, new ArrayList<>());
+                    DataSnapshot formationsSnapshot = categorySnapshot.child("formations");
+                    if (formationsSnapshot.exists()) {
+                        for (DataSnapshot formationSnapshot : formationsSnapshot.getChildren()) {
+                            Log.d(TAG, "Found formation: " + formationSnapshot.getKey());
+                            if (isFormationActive(formationSnapshot)) {
+                                Log.d(TAG, "Formation " + formationSnapshot.getKey() + " is active");
+                                allFormations.add(formationSnapshot);
+                                if (!formationsByCategory.containsKey(categoryName)) {
+                                    formationsByCategory.put(categoryName, new ArrayList<>());
+                                }
+                                formationsByCategory.get(categoryName).add(formationSnapshot);
+                                formationToCategoryMap.put(formationSnapshot.getKey(), categoryId);
+                            } else {
+                                Log.w(TAG, "Formation " + formationSnapshot.getKey() + " is not active");
+                            }
                         }
-                        formationsByCategory.get(category).add(snapshot);
                     }
                 }
 
+                Log.d(TAG, "Total formations found: " + allFormations.size());
                 loadUsersData();
+
+                String uid = getCurrentUserUid();
+                if (uid != null) {
+                    loadInscriptions(uid);
+                } else {
+                    displayFormationsByCategory(new HashMap<>());
+                }
             }
 
             @Override
             public void onCancelled(@NonNull DatabaseError error) {
-                Log.e(TAG, "Firebase read error (formations): " + error.getMessage());
+                Log.e(TAG, "Firebase read error (categories): " + error.getMessage());
                 progressBar.setVisibility(View.GONE);
                 Toast.makeText(Home.this, "Erreur de connexion: " + error.getMessage(), Toast.LENGTH_LONG).show();
             }
@@ -172,7 +216,6 @@ public class Home extends AppCompatActivity {
                 Log.d(TAG, "Total students: " + totalStudents + ", Total formateurs: " + totalFormateurs);
                 updateUI(allFormations.size(), totalStudents, totalFormateurs);
                 progressBar.setVisibility(View.GONE);
-                displayFormationsByCategory();
             }
 
             @Override
@@ -184,26 +227,75 @@ public class Home extends AppCompatActivity {
         });
     }
 
+    private void loadInscriptions(String uid) {
+        DatabaseReference inscriptionsRef = FirebaseDatabase.getInstance().getReference("inscriptions").child(uid);
+        inscriptionsRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                Map<String, String> inscriptions = new HashMap<>();
+                if (snapshot.exists()) {
+                    for (DataSnapshot inscriptionSnapshot : snapshot.getChildren()) {
+                        String formationId = inscriptionSnapshot.child("formationId").getValue(String.class);
+                        if (formationId == null) {
+                            formationId = inscriptionSnapshot.child("idFormation").getValue(String.class);
+                        }
+                        String statut = inscriptionSnapshot.child("statut").getValue(String.class);
+                        if (formationId != null && statut != null) {
+                            inscriptions.put(formationId, statut);
+                        }
+                    }
+                }
+                displayFormationsByCategory(inscriptions);
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+                Log.e(TAG, "Firebase read error (inscriptions): " + error.getMessage());
+                Toast.makeText(Home.this, "Erreur lors du chargement des inscriptions: " + error.getMessage(), Toast.LENGTH_LONG).show();
+                displayFormationsByCategory(new HashMap<>());
+            }
+        });
+    }
+
+    private String getCurrentUserUid() {
+        FirebaseUser user = mAuth.getCurrentUser();
+        return user != null ? user.getUid() : null;
+    }
+
     private boolean isFormationActive(DataSnapshot snapshot) {
         String statut = snapshot.child("statut").getValue(String.class);
-        if (statut == null || !statut.equalsIgnoreCase("active")) {
+        if (statut == null) {
+            Log.w(TAG, "Formation " + snapshot.getKey() + " has no statut");
+            return false;
+        }
+        if (!Arrays.asList("active", "validée", "publiée").contains(statut.toLowerCase())) {
+            Log.w(TAG, "Formation " + snapshot.getKey() + " has invalid statut: " + statut);
             return false;
         }
 
         try {
-            Date currentDate = new Date(); // Current date: May 31, 2025, 10:03 AM CET
             String dateDebutStr = snapshot.child("dateDebut").getValue(String.class);
             String dateFinStr = snapshot.child("dateFin").getValue(String.class);
 
             if (dateDebutStr == null || dateFinStr == null) {
+                Log.w(TAG, "Formation " + snapshot.getKey() + " has missing dates: debut=" + dateDebutStr + ", fin=" + dateFinStr);
                 return false;
             }
 
+            Date currentDate = new Date();
             Date startDate = DATE_FORMAT.parse(dateDebutStr);
             Date endDate = DATE_FORMAT.parse(dateFinStr);
 
-            return startDate != null && endDate != null &&
-                    currentDate.after(startDate) && currentDate.before(endDate);
+            if (startDate == null || endDate == null) {
+                Log.w(TAG, "Formation " + snapshot.getKey() + " has invalid date format");
+                return false;
+            }
+
+            boolean isActive = currentDate.before(endDate);
+            if (!isActive) {
+                Log.w(TAG, "Formation " + snapshot.getKey() + " is not active: start=" + dateDebutStr + ", end=" + dateFinStr);
+            }
+            return isActive;
         } catch (Exception e) {
             Log.e(TAG, "Error parsing dates for formation " + snapshot.getKey() + ": " + e.getMessage());
             return false;
@@ -292,7 +384,7 @@ public class Home extends AppCompatActivity {
         });
     }
 
-    private void displayFormationsByCategory() {
+    private void displayFormationsByCategory(Map<String, String> inscriptions) {
         cardsContainer.removeAllViews();
 
         if (formationsByCategory.isEmpty()) {
@@ -300,24 +392,43 @@ public class Home extends AppCompatActivity {
             return;
         }
 
-        for (Map.Entry<String, List<DataSnapshot>> entry : formationsByCategory.entrySet()) {
-            String category = entry.getKey();
-            List<DataSnapshot> formations = entry.getValue();
+        if (selectedCategory.equals("all")) {
+            for (Map.Entry<String, List<DataSnapshot>> entry : formationsByCategory.entrySet()) {
+                String category = entry.getKey();
+                List<DataSnapshot> formations = entry.getValue();
 
-            if (formations == null || formations.isEmpty()) {
-                continue;
+                if (formations == null || formations.isEmpty()) {
+                    continue;
+                }
+
+                TextView categoryTitle = new TextView(this);
+                categoryTitle.setText(category);
+                categoryTitle.setTextSize(22);
+                categoryTitle.setTypeface(null, Typeface.BOLD);
+                categoryTitle.setTextColor(getResources().getColor(R.color.iefpTextPrimary));
+                categoryTitle.setPadding(dpToPx(16), dpToPx(24), dpToPx(16), dpToPx(12));
+                cardsContainer.addView(categoryTitle);
+
+                for (DataSnapshot formationSnapshot : formations) {
+                    addFormationCard(formationSnapshot, inscriptions.getOrDefault(formationSnapshot.getKey(), null));
+                }
             }
+        } else {
+            List<DataSnapshot> formations = formationsByCategory.get(selectedCategory);
+            if (formations != null && !formations.isEmpty()) {
+                TextView categoryTitle = new TextView(this);
+                categoryTitle.setText(selectedCategory);
+                categoryTitle.setTextSize(22);
+                categoryTitle.setTypeface(null, Typeface.BOLD);
+                categoryTitle.setTextColor(getResources().getColor(R.color.iefpTextPrimary));
+                categoryTitle.setPadding(dpToPx(16), dpToPx(24), dpToPx(16), dpToPx(12));
+                cardsContainer.addView(categoryTitle);
 
-            TextView categoryTitle = new TextView(this);
-            categoryTitle.setText(category);
-            categoryTitle.setTextSize(22);
-            categoryTitle.setTypeface(null, Typeface.BOLD);
-            categoryTitle.setTextColor(getResources().getColor(R.color.iefpTextPrimary));
-            categoryTitle.setPadding(dpToPx(16), dpToPx(24), dpToPx(16), dpToPx(12));
-            cardsContainer.addView(categoryTitle);
-
-            for (DataSnapshot formationSnapshot : formations) {
-                addFormationCard(formationSnapshot);
+                for (DataSnapshot formationSnapshot : formations) {
+                    addFormationCard(formationSnapshot, inscriptions.getOrDefault(formationSnapshot.getKey(), null));
+                }
+            } else {
+                showNoDataMessage();
             }
         }
     }
@@ -327,7 +438,7 @@ public class Home extends AppCompatActivity {
         return Math.round(dp * density);
     }
 
-    private void addFormationCard(DataSnapshot formationSnapshot) {
+    private void addFormationCard(DataSnapshot formationSnapshot, String inscriptionStatus) {
         CardView card = new CardView(this);
         CardView.LayoutParams params = new CardView.LayoutParams(
                 CardView.LayoutParams.MATCH_PARENT,
@@ -408,11 +519,109 @@ public class Home extends AppCompatActivity {
         formateur.setPadding(0, dpToPx(12), 0, 0);
         layout.addView(formateur);
 
+        // Ajout des modules
+        DataSnapshot modulesSnapshot = formationSnapshot.child("modules");
+        if (modulesSnapshot.exists()) {
+            TextView modulesTitle = new TextView(this);
+            modulesTitle.setText("Modules:");
+            modulesTitle.setTextSize(16);
+            modulesTitle.setTypeface(null, Typeface.BOLD);
+            modulesTitle.setTextColor(getResources().getColor(R.color.iefpTextPrimary));
+            modulesTitle.setPadding(0, dpToPx(12), 0, dpToPx(4));
+            layout.addView(modulesTitle);
+
+            int index = 1;
+            for (DataSnapshot moduleSnapshot : modulesSnapshot.getChildren()) {
+                String moduleTitre = getValueFromAlternateKeys(moduleSnapshot, new String[]{"titre", "title"}, "Module " + index);
+                String moduleDescription = getValueFromAlternateKeys(moduleSnapshot, new String[]{"description", "desc"}, "N/A");
+                String moduleDuree = parseIntFromSnapshot(moduleSnapshot, "duree", "N/A");
+
+                TextView moduleText = new TextView(this);
+                moduleText.setText(String.format("- %s: %s (%s h)", moduleTitre, moduleDescription, moduleDuree));
+                moduleText.setTextSize(14);
+                moduleText.setTextColor(getResources().getColor(R.color.iefpTextSecondary));
+                moduleText.setPadding(0, dpToPx(4), 0, dpToPx(4));
+                layout.addView(moduleText);
+                index++;
+            }
+        }
+
+        // Ajout du lien vers le fichier
+        String fichierUrl = formationSnapshot.child("fichierUrl").getValue(String.class);
+        if (fichierUrl == null) {
+            fichierUrl = formationSnapshot.child("imageUrl").getValue(String.class);
+        }
+        final String finalFichierUrl = fichierUrl; // Use final variable for lambda
+        if (finalFichierUrl != null && !finalFichierUrl.isEmpty()) {
+            TextView fileLink = new TextView(this);
+            fileLink.setText("Télécharger le fichier");
+            fileLink.setTextSize(14);
+            fileLink.setTextColor(ContextCompat.getColor(this, android.R.color.holo_blue_dark));
+            fileLink.setPadding(0, dpToPx(8), 0, dpToPx(8));
+            fileLink.setOnClickListener(v -> {
+                try {
+                    // Validate URL
+                    if (finalFichierUrl.startsWith("http://") || finalFichierUrl.startsWith("https://")) {
+                        Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(finalFichierUrl));
+                        if (browserIntent.resolveActivity(getPackageManager()) != null) {
+                            startActivity(browserIntent);
+                        } else {
+                            Toast.makeText(Home.this, "Aucune application pour ouvrir le fichier", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        // Assume it's a Firebase Storage path
+                        FirebaseStorage.getInstance().getReference(finalFichierUrl).getDownloadUrl()
+                                .addOnSuccessListener(uri -> {
+                                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, uri);
+                                    if (browserIntent.resolveActivity(getPackageManager()) != null) {
+                                        startActivity(browserIntent);
+                                    } else {
+                                        Toast.makeText(Home.this, "Aucune application pour ouvrir le fichier", Toast.LENGTH_SHORT).show();
+                                    }
+                                })
+                                .addOnFailureListener(e -> {
+                                    Log.e(TAG, "Error fetching download URL: " + e.getMessage());
+                                    Toast.makeText(Home.this, "Erreur lors du téléchargement: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                });
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error opening file: " + e.getMessage());
+                    Toast.makeText(Home.this, "Erreur lors de l'ouverture du fichier", Toast.LENGTH_SHORT).show();
+                }
+            });
+            layout.addView(fileLink);
+        }
+
+        // Afficher le statut d'inscription
+        if (inscriptionStatus != null) {
+            TextView statusText = new TextView(this);
+            statusText.setText("Statut: " + inscriptionStatus);
+            statusText.setTextSize(14);
+            statusText.setPadding(0, dpToPx(12), 0, dpToPx(8));
+            switch (inscriptionStatus.toLowerCase()) {
+                case "validée":
+                case "validé":
+                    statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark));
+                    break;
+                case "en attente":
+                    statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark));
+                    break;
+                case "refusée":
+                    statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_dark));
+                    break;
+                default:
+                    statusText.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray));
+                    break;
+            }
+            layout.addView(statusText);
+        }
+
         card.addView(layout);
 
         card.setOnClickListener(v -> {
             Intent intent = new Intent(this, FormationDetailActivity.class);
             intent.putExtra("formationId", formationSnapshot.getKey());
+            intent.putExtra("categoryId", formationToCategoryMap.get(formationSnapshot.getKey()));
             startActivity(intent);
         });
 
@@ -432,11 +641,12 @@ public class Home extends AppCompatActivity {
             String categorie = getValueFromAlternateKeys(formationSnapshot,
                     new String[]{"categorie", "category", "type"}, "");
 
-            if (query.isEmpty() ||
+            if ((query.isEmpty() ||
                     titre.toLowerCase().contains(query) ||
                     description.toLowerCase().contains(query) ||
-                    categorie.toLowerCase().contains(query)) {
-                addFormationCard(formationSnapshot);
+                    categorie.toLowerCase().contains(query)) &&
+                    (selectedCategory.equals("all") || formationsByCategory.get(selectedCategory).contains(formationSnapshot))) {
+                addFormationCard(formationSnapshot, null);
                 hasResults = true;
             }
         }
@@ -445,7 +655,7 @@ public class Home extends AppCompatActivity {
             cardsContainer.setVisibility(View.GONE);
             findViewById(R.id.empty_state).setVisibility(View.VISIBLE);
             btnClearSearch.setVisibility(View.VISIBLE);
-            showNoResultsMessage(query);
+            showNoResultsText(query);
         } else {
             cardsContainer.setVisibility(View.VISIBLE);
             findViewById(R.id.empty_state).setVisibility(View.GONE);
@@ -457,9 +667,13 @@ public class Home extends AppCompatActivity {
         cardsContainer.setVisibility(View.GONE);
         findViewById(R.id.empty_state).setVisibility(View.VISIBLE);
         btnClearSearch.setVisibility(View.GONE);
+        TextView text = findViewById(R.id.tv_empty_state_message);
+        if (text != null) {
+            text.setText("Aucune formation disponible");
+        }
     }
 
-    private void showNoResultsMessage(String query) {
+    private void showNoResultsText(String query) {
         TextView text = findViewById(R.id.tv_empty_state_message);
         if (text != null) {
             text.setText("Aucun résultat pour \"" + query + "\"");
@@ -467,12 +681,27 @@ public class Home extends AppCompatActivity {
     }
 
     private void showFilterDialog() {
-        Toast.makeText(this, "Fonctionnalité de filtrage à implémenter", Toast.LENGTH_SHORT).show();
-    }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Filtrer par catégorie");
 
-    private void showAllFormations() {
-        searchEditText.setText("");
-        displayFormationsByCategory();
+        Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, categoryList);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+
+        int selectedIndex = categoryList.indexOf(selectedCategory.equals("all") ? "Toutes les catégories" : selectedCategory);
+        if (selectedIndex >= 0) {
+            spinner.setSelection(selectedIndex);
+        }
+
+        builder.setView(spinner);
+        builder.setPositiveButton("OK", (dialog, which) -> {
+            String selected = spinner.getSelectedItem().toString();
+            selectedCategory = selected.equals("Toutes les catégories") ? "all" : selected;
+            displayFormationsByCategory(new HashMap<>());
+        });
+        builder.setNegativeButton("Annuler", null);
+        builder.show();
     }
 
     @Override
